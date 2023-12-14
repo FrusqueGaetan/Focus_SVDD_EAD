@@ -95,9 +95,7 @@ for seed in range(0,n_seed,1):
     result={}
     for kind in Kind_type:
         GG.Get_X(kind)
-        InB=[[len(GG.XTrain[0]),128,128,32]]
-        # InB=[[len(GG.XTrain[0]),64,64,32],
-        #       [len(GG.XTrain[0]),128,128,32]]
+        InB=[[len(GG.XTrain[0]),64,64,32]]
         r=GG.Test(Train=GG.XTrain,Valid=GG.XValid,Test=GG.XTest)
         Name=str(seed)+"_"+kind+"_Raw"
         result[Name]=r
@@ -166,7 +164,7 @@ for i in range(nseed):
         r1=M[0][1][sel]
         M=M[1:]
         r2=[0,0,0,0]
-        for style in range(4):
+        for style in range(2):
             c=np.array(M)[:,style,0]
             c[c==0]=1
             c=np.abs(c-0.05)
