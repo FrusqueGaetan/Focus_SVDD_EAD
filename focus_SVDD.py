@@ -27,7 +27,7 @@ def TestBatterie(Y,T,s):
 
 
 class Generation_data:
-    def __init__(self, DataT, DataF, seed = np.random.randint(15000) ):
+    def __init__(self, DataT, DataF, seed = 0):
         """ 
         DESCRIPTION
         
@@ -89,6 +89,7 @@ class Generation_data:
         Id_t = np.setdiff1d(Id_,Id_v)
 
         self.DataTrain = self.DataT[Id_t]
+        self.DataTrain=self.DataTrain
         self.OCTrain = self.VecHlt[Id_t]
         self.DataValid = self.DataT[Id_v]
         self.OCValid = self.VecHlt[Id_v]
@@ -156,6 +157,7 @@ class Generation_data:
         else:
             X = torch.tensor(X).double().to(DEVICE)
         return X
+    #def __getRes___(self)
     def Get_Batch(self, BS, Is_Augment):
         batch_select=np.random.randint(0,len(self.XTrain),BS)
         return self.XTrain[batch_select,:]
@@ -185,7 +187,7 @@ class Generation_data:
         v[0,1,:]=np.concatenate(([0],R_2))
         c=1
         for lam in self.Lambda:
-            SVDD=OCC_HI(lam,type_k=self.gauss,C=1/330)
+            SVDD=OCC_HI(lam)
             try: 
                 SVDD.Train(Train.T)
                 a0=SVDD.Test(Train.T)
@@ -196,13 +198,13 @@ class Generation_data:
                 a2=-1/2*SVDD.svdd.testT2.squeeze()
                 k0=np.mean(a0)-np.mean(a1)
                 C0=GetOPT(SVDD)
-                C2=GetOPT(SVDD)-k0
+                C2=C0-k0
                 r_1=np.sum(a1<C0)/len(a1)
-                r_3=np.sum(a1<C2)/len(a1)
+                r_2=np.sum(a1<C2)/len(a1)
                 R_1=TestBatterie(a2<C0,self.LabelTest,a2)
-                R_3=TestBatterie(a2<C2,self.LabelTest,a2)
+                R_2=TestBatterie(a2<C2,self.LabelTest,a2)
                 v[c,0,:]=np.concatenate(([r_1],R_1))  
-                v[c,1,:]=np.concatenate(([r_3],R_3)) 
+                v[c,1,:]=np.concatenate(([r_2],R_2)) 
             except ValueError:
                 v[c,0,:]=np.concatenate(([0],[0,0,0,0,0]))
                 v[c,1,:]=np.concatenate(([0],[0,0,0,0,0]))
@@ -692,78 +694,62 @@ class SVDD():
 class AEnet(nn.Module):
     def __init__(self,In):
         super(AEnet, self).__init__()
-        self.deep=len(In)-1
-        self.encoder = nn.ModuleList()
-        self.decoder = nn.ModuleList()
-        self.relu = nn.ReLU()
-        for i in range(self.deep):
-            self.encoder.append(nn.Linear(In[i], In[i+1]))
-            self.decoder.append(nn.Linear(In[i+1], In[i]))  
-    def forward(self,x):
-        for i in range(self.deep):
-            x = self.relu(self.encoder[i](x))
-        for i in range(self.deep):
-            x=self.relu(x)
-            x=self.decoder[-(i+1)](x)         
-        return x
-    def embed(self,x):
-        for i in range(self.deep):
-            x = self.relu(self.encoder[i](x))       
-        return x
-    
+        #self.deep=len(In)-1
+        self.autoencoder=nn.Sequential(nn.Linear(In,64),
+                                  nn.ReLU(),
+                                  nn.Linear(64,64),
+                                  nn.ReLU(),
+                                  nn.Linear(64,32),
+                                  nn.ReLU(),
+                                  nn.Linear(32,64),
+                                  nn.ReLU(),
+                                  nn.Linear(64,64),
+                                  nn.ReLU(),
+                                  nn.Linear(64,In))
+    def forward(self,x):   
+        return self.autoencoder(x)
 
 
 class Comp_ReLU(nn.Module):
     def __init__(self,typeA=1):
         super(Comp_ReLU, self).__init__()
         self.typeA=typeA
-        if typeA==2 or typeA==3:
-            self.biais = nn.Parameter(data=0.1*torch.ones(1,dtype=torch.complex64).clone() ,requires_grad=True)
-        
+        if typeA=="modReLU"or typeA=="EAD":
+            self.biais = nn.Parameter(data=0.1*torch.ones(1,dtype=torch.complex64).clone() ,requires_grad=True)   
     def forward(self,z):
-        
-        if self.typeA==0:
-             return z * torch.logical_and(z.real.ge(0),z.imag.ge(0), out=torch.empty_like(z, dtype=torch.bool))
-        elif self.typeA==1:#CReLU
+        if self.typeA=="CReLU":#1:#CReLU
              return F.relu(z.real)+ 1j*F.relu(z.imag)
-        elif self.typeA==2:#modReLU
+        elif self.typeA=="modReLU":#2:#modReLU
             return F.relu(torch.abs(z)-torch.abs(self.biais))*torch.exp(1j*torch.angle(z))
-        elif self.typeA==3:#EAD
+        elif self.typeA=="EAD":#3:#EAD
             return (1-torch.exp(-torch.abs(self.biais)*torch.abs(z)**2))*torch.exp(1j*torch.angle(z))   
-        elif self.typeA==4:
-            return z+torch.conj(z)
-        elif self.typeA==5:
-            return F.relu(z.real)+1j*0      
-        elif self.typeA==6:
-            return torch.abs(z)+z
-     
 class AEnet_c(nn.Module):
     def __init__(self,In,fun):
         super(AEnet_c, self).__init__()
-        self.deep=len(In)-1
-        self.encoder = nn.ModuleList()
-        self.decoder = nn.ModuleList()
-        self.mode =  nn.ModuleList()
-        self.modd =  nn.ModuleList()
-        self.relu = nn.ReLU()
-        for i in range(self.deep):
-            self.encoder.append(nn.Linear(In[i], In[i+1], dtype=torch.complex64))
-            self.decoder.append(nn.Linear(In[i+1], In[i], dtype=torch.complex64))  
-            self.mode.append(Comp_ReLU(fun))
-            if i == 0:
-                self.modd.append(nn.Identity())
-            else:
-                self.modd.append(Comp_ReLU(fun))
-        # self.mode = torch.nn.ParameterList(self.mode)
-        # self.modd = torch.nn.ParameterList(self.modd)
-    
-    def forward(self,x):
-        for i in range(self.deep):
-            x = self.mode[i](self.encoder[i](x))
-        for i in range(self.deep):
-            x=self.modd[-(i+1)](self.decoder[-(i+1)](x))         
-        return x
-    def embed(self,x):
-        for i in range(self.deep):
-            x = self.mode[i](self.encoder[i](x))       
-        return x
+        self.autoencoder=nn.Sequential(nn.Linear(In,64, dtype=torch.complex64),
+                                  Comp_ReLU(fun),
+                                  nn.Linear(64,64, dtype=torch.complex64),
+                                  Comp_ReLU(fun),
+                                  nn.Linear(64,32, dtype=torch.complex64),
+                                  Comp_ReLU(fun),
+                                  nn.Linear(32,64, dtype=torch.complex64),
+                                  Comp_ReLU(fun),
+                                  nn.Linear(64,64, dtype=torch.complex64),
+                                  Comp_ReLU(fun),
+                                  nn.Linear(64,In, dtype=torch.complex64))
+    def forward(self,x):      
+        return self.autoencoder(x)
+
+def GetF1Score(M):
+    F1_id = 3
+    r1=M[0][1][F1_id]
+    M=M[1:]
+    r2=[0,0]
+    for style in range(2):
+        c=np.array(M)[:,style,0]
+        c[c==0]=1
+        c=np.abs(c-0.05)
+        cm=np.min(c)
+        idx=np.max(np.where(c==cm))
+        r2[style]=np.array(M)[idx,style,F1_id]
+    return r1, r2[0], r2[1]

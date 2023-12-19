@@ -38,22 +38,24 @@ for i in range(len(ld)):
     print(np.shape(M["A"])[1])
     for j in range(np.shape(M["A"])[1]):
         c=M["A"][:,j]
+        #c=c-np.mean(c)
         c=np.array(c,dtype=np.double)
         if i <6:
             DataF.append(c)
         else:
             DataT.append(c)
             
-
+#Nmax=np.max(DataT) 
 DataT=np.array(DataT)
+DataF=np.array(DataF)
 a=np.mean(DataT)
 b=np.std(DataT)
 DataT=(DataT-a)/b
 DataF=(np.array(DataF)-a)/b
-#%%
+
 import sys
 sys.path.insert(1, path_to_folder)
-from focus_SVDD import  Generation_data, AEnet_c, AEnet
+from focus_SVDD import  Generation_data, AEnet_c, AEnet, GetF1Score
 MSE=nn.MSELoss()
 def train(network,kind):
     network.train()
@@ -79,103 +81,55 @@ def train(network,kind):
     return np.mean(loss_v)
 
 
-Kind_type=["Real"] #
-InT=["AE_1"]
-mod=""
-BS=32
-N_Epoch=2000
-n_seed=5
-N_cas=71
-GG=Generation_data(DataT,DataF,seed=42)#Generator containing the Training, Validation, Test dataset
+
+kind="Hilbert"#Option are Real, Amp, H_amp_phi, H_real_imag, LFFT
+Activation="EAD"#Option CReLU, modReLU (if signal is real then ReLU)
+
+BS=32#Batch size
+N_Epoch=2000#number of Epoch
+n_cross=5#Nb of cross validation
 path_result=path_to_folder+"Results/Scores_seed_"
-Kind_type=["Real","Hilbert"]
-for seed in range(0,n_seed,1):
-    GG=Generation_data(DataT,DataF,seed=42) 
+
+
+F1_withoutSVDD=[]
+F1_withSVDD=[]
+for seed in range(0,n_cross,1):
+    GG=Generation_data(DataT,DataF,42) 
     GG.Mix(k=seed)
-    result={}
-    for kind in Kind_type:
-        GG.Get_X(kind)
-        InB=[[len(GG.XTrain[0]),64,64,32]]
+    GG.Get_X(kind)
+    if kind=="Hilbert":
+        r=GG.Test(Train=np.abs(GG.XTrain),Valid=np.abs(GG.XValid),Test=np.abs(GG.XTest))
+        F1_withoutSVDD.append(GetF1Score(r))
+        network=AEnet_c(In=1501,fun=Activation).double().to(DEVICE)
+        optimizer=torch.optim.Adam(network.parameters(), lr=0.001)
+        scheduler= torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[400,800,1200,1600], gamma=0.2)
+        for epoch in range(N_Epoch):
+            l=train(network,kind)
+            #print([seed,epoch,l])
+            scheduler.step() 
+        r=GG.Test(Train=np.abs(GG.XTrain-GG.gn_(network(GG.gt_(GG.XTrain)))),
+                Valid=np.abs(GG.XValid-GG.gn_(network(GG.gt_(GG.XValid)))),
+                Test=np.abs(GG.XTest-GG.gn_(network(GG.gt_(GG.XTest)))))
+        F1_withSVDD.append(GetF1Score(r))
+    else:
         r=GG.Test(Train=GG.XTrain,Valid=GG.XValid,Test=GG.XTest)
-        Name=str(seed)+"_"+kind+"_Raw"
-        result[Name]=r
-        print(kind)
-        if kind=="Hilbert":
-            for IndexAE in range(len(InB)):
-                for i_fun in range(3):
-                    print(i_fun)
-                    network=AEnet_c(In=InB[IndexAE],fun=i_fun+1).double().to(DEVICE)
-                    optimizer=torch.optim.Adam(network.parameters(), lr=0.001)
-                    scheduler= torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[400,800,1200,1600], gamma=0.5)
-                    for epoch in range(N_Epoch):
-                        l=train(network,kind)
-                        print([epoch,l])
-                        scheduler.step() 
-                    r=GG.Test(Train=np.abs(GG.XTrain-GG.gn_(network(GG.gt_(GG.XTrain)))),
-                           Valid=np.abs(GG.XValid-GG.gn_(network(GG.gt_(GG.XValid)))),
-                           Test=np.abs(GG.XTest-GG.gn_(network(GG.gt_(GG.XTest)))))
-                    Name=str(seed)+"_"+kind+"_"+InT[IndexAE]+"_"+str(i_fun)+"_Rec"
-                    result[Name]=r
-                    r=GG.Test(Train=np.abs(GG.gn_(network.embed(GG.gt_(GG.XTrain)))),
-                           Valid=np.abs(GG.gn_(network.embed(GG.gt_(GG.XValid)))),
-                           Test=np.abs(GG.gn_(network.embed(GG.gt_(GG.XTest)))))
-                    Name=str(seed)+"_"+kind+"_"+InT[IndexAE]+"_"+str(i_fun)+"_Min"
-                    result[Name]=r
-        else:
-            for IndexAE in range(len(InB)):
-                network=AEnet(In=InB[IndexAE]).double().to(DEVICE)
-                optimizer=torch.optim.Adam(network.parameters(), lr=0.001)
-                scheduler= torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[400,800,1200,1600], gamma=0.5)
-                for epoch in range(N_Epoch):
-                    l=train(network,kind)
-                    print([epoch,l])
-                    scheduler.step() 
-                r=GG.Test(Train=GG.XTrain-GG.gn_(network(GG.gt_(GG.XTrain))),
-                        Valid=GG.XValid-GG.gn_(network(GG.gt_(GG.XValid))),
-                        Test=GG.XTest-GG.gn_(network(GG.gt_(GG.XTest))))
-                Name=str(seed)+"_"+kind+"_"+InT[IndexAE]+"_Rec"
-                result[Name]=r
-                r=GG.Test(Train=GG.gn_(network.embed(GG.gt_(GG.XTrain))),
-                        Valid=GG.gn_(network.embed(GG.gt_(GG.XValid))),
-                        Test=GG.gn_(network.embed(GG.gt_(GG.XTest))))
-                Name=str(seed)+"_"+kind+"_"+InT[IndexAE]+"_Min"
-                result[Name]=r
-    with open(path_result+str(seed)+".p", 'wb') as handle:
-        pickle.dump(result, handle, protocol=pickle.HIGHEST_PROTOCOL)
-        
-        
+        network=AEnet(In=1501).double().to(DEVICE)
+        F1_withoutSVDD.append(GetF1Score(r))
+        optimizer=torch.optim.Adam(network.parameters(), lr=0.001)
+        scheduler= torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[400,800,1200,1600], gamma=0.5)
+        for epoch in range(N_Epoch):
+            l=train(network,kind)
+            #print([seed,epoch,l])
+            scheduler.step() 
+        r=GG.Test(Train=GG.XTrain-GG.gn_(network(GG.gt_(GG.XTrain))),
+                Valid=GG.XValid-GG.gn_(network(GG.gt_(GG.XValid))),
+                Test=GG.XTest-GG.gn_(network(GG.gt_(GG.XTest))))
+        F1_withSVDD.append(GetF1Score(r))
 
+print(np.mean(F1_withSVDD,0))
+print(np.mean(F1_withoutSVDD,0))
+#%%
 
-import pickle 
-res={}
-sel=3 #Which score you want to look at 3 for F1score
-nseed=5
-for i in range(nseed):
-
-    with open(path_result+str(i)+".p", 'rb') as handle:
-        b = pickle.load(handle)
-        
-        
-    keylist=list(b.keys())
-    
-    
-    for key in keylist:
-        M=b[key]
-        r1=M[0][1][sel]
-        M=M[1:]
-        r2=[0,0,0,0]
-        for style in range(2):
-            c=np.array(M)[:,style,0]
-            c[c==0]=1
-            c=np.abs(c-0.05)
-            cm=np.min(c)
-            idx=np.max(np.where(c==cm))
-            r2[style]=np.array(M)[idx,style,sel]
-            #r2[style]=np.max(1-np.array(M)[:,style,sel])
-        if key[2:]=="Real_R_Rec":
-            print(r2)
-        if i>=1:
-            res[key[2:]]=np.concatenate([[r1], r2 ])/nseed+res[key[2:]]
-        else:
-            res[key[2:]]=np.concatenate([[r1], r2 ])/nseed
-print(res)
+0.9346879535558782
+0.9661705006765899
+0.9530386740331491
