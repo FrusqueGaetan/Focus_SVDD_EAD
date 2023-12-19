@@ -38,14 +38,12 @@ for i in range(len(ld)):
     print(np.shape(M["A"])[1])
     for j in range(np.shape(M["A"])[1]):
         c=M["A"][:,j]
-        #c=c-np.mean(c)
         c=np.array(c,dtype=np.double)
         if i <6:
             DataF.append(c)
         else:
             DataT.append(c)
             
-#Nmax=np.max(DataT) 
 DataT=np.array(DataT)
 DataF=np.array(DataF)
 a=np.mean(DataT)
@@ -102,7 +100,7 @@ for seed in range(0,n_cross,1):
         F1_withoutSVDD.append(GetF1Score(r))
         network=AEnet_c(In=1501,fun=Activation).double().to(DEVICE)
         optimizer=torch.optim.Adam(network.parameters(), lr=0.001)
-        scheduler= torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[400,800,1200,1600], gamma=0.2)
+        scheduler= torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[400,800,1200,1600], gamma=0.5)
         for epoch in range(N_Epoch):
             l=train(network,kind)
             #print([seed,epoch,l])
@@ -128,8 +126,3 @@ for seed in range(0,n_cross,1):
 
 print(np.mean(F1_withSVDD,0))
 print(np.mean(F1_withoutSVDD,0))
-#%%
-
-0.9346879535558782
-0.9661705006765899
-0.9530386740331491
